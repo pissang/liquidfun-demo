@@ -60636,7 +60636,7 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
-const vsCode = `
+const particleVsCode = `
 attribute vec2 position;
 
 uniform vec2 viewport;
@@ -60647,12 +60647,14 @@ void main() {
     gl_Position = vec4(p, 0.0, 1.0);
 }
 `;
-const fsCode = `
+const particleFsCode = `
 precision highp float;
 void main() {
     gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
 }
 `;
+var stats = new Stats();
+document.body.appendChild(stats.dom);
 
 const canvas = document.createElement('canvas');
 const mainDiv = document.querySelector('#main');
@@ -60677,14 +60679,35 @@ let draw;
 if (urlOpts.renderer === 'canvas') {
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#fff';
 
     draw = function (position) {
         ctx.clearRect(0, 0, width, height);
+        ctx.beginPath();
         for (let i = 0; i < position.length;) {
             const x = position[i++];
             const y = position[i++];
 
-            ctx.fillRect(x, y, 3, 3);
+            ctx.rect(x, y, 3, 3);
+            // ctx.fillRect(x, y, 3, 3);
+        }
+        ctx.fill();
+
+        for (let i = 0; i < bodies.length; i++) {
+            const body = bodies[i];
+            for (let k = 0; k < body.fixtures.length; k++) {
+                const shape = body.fixtures[k].shape;
+                const vertices = shape.vertices;
+                const len = vertices.length;
+
+                ctx.beginPath();
+                ctx.moveTo(vertices[len - 1].x, vertices[len - 1].y)
+                for (let m = 0; m < len; m++) {
+                    const p = vertices[m];
+                    ctx.lineTo(p.x, p.y);
+                }
+                ctx.stroke();
+            }
         }
     };
 }
@@ -60692,7 +60715,7 @@ else {
     const gl = canvas.getContext('webgl');
 
     const posBuffer = Object(_glutil__WEBPACK_IMPORTED_MODULE_1__["createVertexBuffer"])(gl);
-    const program = Object(_glutil__WEBPACK_IMPORTED_MODULE_1__["createProgram"])(gl, vsCode, fsCode);
+    const program = Object(_glutil__WEBPACK_IMPORTED_MODULE_1__["createProgram"])(gl, particleVsCode, particleFsCode);
 
     gl.useProgram(program);
     Object(_glutil__WEBPACK_IMPORTED_MODULE_1__["setVertexBuffer"])(gl, program, 'position', posBuffer, 2);
@@ -60709,6 +60732,8 @@ else {
         gl.drawArrays(gl.POINTS, 0, position.length / 2);
     };
 }
+
+const bodies = [];
 // https://beta.observablehq.com/@mbostock/liquidfun
 function initPhysics() {
     const world = window.world = new _lib_liquidfun__WEBPACK_IMPORTED_MODULE_0___default.a.World(new _lib_liquidfun__WEBPACK_IMPORTED_MODULE_0___default.a.Vec2(0, 1000));
@@ -60716,7 +60741,6 @@ function initPhysics() {
     const borderWidth = 2;
     bd.type = _lib_liquidfun__WEBPACK_IMPORTED_MODULE_0___default.a._staticBody;
     bd.allowSleep = false;
-    bd.position.Set(0, 1);
     // 4 Borders
     const body = world.CreateBody(bd);
     const p1 = new _lib_liquidfun__WEBPACK_IMPORTED_MODULE_0___default.a.PolygonShape();
@@ -60743,17 +60767,35 @@ function initPhysics() {
     const particleGroupDef = new _lib_liquidfun__WEBPACK_IMPORTED_MODULE_0___default.a.ParticleGroupDef();
     particleGroupDef.shape = box;
     particleSystem.CreateParticleGroup(particleGroupDef);
+
+    const barrierBd = new _lib_liquidfun__WEBPACK_IMPORTED_MODULE_0___default.a.BodyDef();
+    barrierBd.type = _lib_liquidfun__WEBPACK_IMPORTED_MODULE_0___default.a._staticBody;
+    const barrierBody = world.CreateBody(barrierBd);
+    for (let i = 0; i < 10; i++) {
+        const shape = new _lib_liquidfun__WEBPACK_IMPORTED_MODULE_0___default.a.PolygonShape();
+        shape.SetAsBoxXYCenterAngle(
+            100, 2,
+            new _lib_liquidfun__WEBPACK_IMPORTED_MODULE_0___default.a.Vec2(Math.random() * 200 + 100, i * 50 + 100),
+            0
+        );
+        barrierBody.CreateFixtureFromShape(shape, 0);
+    }
+    bodies.push(barrierBody);
+
     return {world};
 }
 
 const {world} = initPhysics();
 
 function frame() {
+    stats.begin();
+
     world.Step(0.01, 5, 3);
 
     const position = world.particleSystems[0].GetPositionBuffer();
     draw(position);
 
+    stats.end();
     requestAnimationFrame(frame);
 }
 
@@ -60789,7 +60831,16 @@ function updateGravity(event) {
     world.SetGravity(new _lib_liquidfun__WEBPACK_IMPORTED_MODULE_0___default.a.Vec2(x * scale, y * scale));
 };
 
+function addSphere(e) {
+    const pos = e.touches ? e.touches[0]: e;
+    const x = pos.clientX;
+    const y = pos.clientY;
+
+}
+
 window.addEventListener('deviceorientation', updateGravity);
+
+window.addEventListener('click', addSphere);
 
 /***/ })
 

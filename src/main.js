@@ -194,11 +194,11 @@ function initPhysics() {
     const barrierBd = new b2.BodyDef();
     barrierBd.type = b2._staticBody;
     const barrierBody = world.CreateBody(barrierBd);
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 15; i++) {
         const shape = new b2.PolygonShape();
         shape.SetAsBoxXYCenterAngle(
-            100, 2,
-            new b2.Vec2(Math.random() * 200 + 100, i * 50 + 100),
+            Math.random() * width / 5 + Math.random() * width / 5, 2,
+            new b2.Vec2(Math.random() * width / 2 + 100, i * height / 20 + 100),
             0
         );
         barrierBody.CreateFixtureFromShape(shape, 0);

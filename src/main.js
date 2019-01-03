@@ -1,18 +1,13 @@
-import b2 from '../lib/liquidfun';
-import {
-    createVertexBuffer,
-    createProgram,
-    setVertexBuffer,
-    updateVertexBuffer
-} from './glutil';
-
+const {
+    createProgram
+} = require('./glutil');
 
 const particleVsCode = `
 attribute vec2 position;
 
 uniform vec2 viewport;
 void main() {
-    gl_PointSize = 3.0;
+    gl_PointSize = 2.0;
     vec2 p = (position / viewport - 0.5) * 2.0;
     p.y = -p.y;
     gl_Position = vec4(p, 0.0, 1.0);
@@ -85,20 +80,25 @@ if (urlOpts.renderer === 'canvas') {
 else {
     const gl = canvas.getContext('webgl');
 
-    const posBuffer = createVertexBuffer(gl);
+    const posBuffer = gl.createBuffer();
+
     const program = createProgram(gl, particleVsCode, particleFsCode);
 
     gl.useProgram(program);
-    setVertexBuffer(gl, program, 'position', posBuffer, 2);
-
+    const posLoc = gl.getAttribLocation(program, 'position');
     gl.uniform2f(gl.getUniformLocation(program, 'viewport'), width, height);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+    gl.bufferData(gl.ARRAY_BUFFER, 3e5, gl.DYNAMIC_DRAW);
 
     draw = function (position) {
         gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.viewport(0, 0, width, height);
 
-        updateVertexBuffer(gl, posBuffer, position);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, position);
 
         gl.drawArrays(gl.POINTS, 0, position.length / 2);
     };
@@ -130,7 +130,7 @@ function initPhysics() {
     body.CreateFixtureFromShape(p4, 0);
 
     const psd = new b2.ParticleSystemDef();
-    psd.radius = 3;
+    psd.radius = 1.5;
     psd.dampingStrength = 0.2;
     const particleSystem = world.CreateParticleSystem(psd);
     const box = new b2.PolygonShape();
@@ -156,59 +156,74 @@ function initPhysics() {
     return {world};
 }
 
-const {world} = initPhysics();
 
-function frame() {
-    stats.begin();
+function init() {
 
-    world.Step(0.01, 5, 3);
+    const {world} = initPhysics();
 
-    const position = world.particleSystems[0].GetPositionBuffer();
-    draw(position);
-
-    stats.end();
-    requestAnimationFrame(frame);
+    function frame() {
+        stats.begin();
+    
+        world.Step(0.01, 5, 3);
+    
+        const position = world.particleSystems[0].GetPositionBuffer();
+        draw(position);
+    
+        stats.end();
+        requestAnimationFrame(frame);
+    }
+    
+    frame();
+    
+    function clamp(val, min, max) {
+        return Math.min(Math.max(val, min), max);
+    }
+    // https://github.com/liabru/matter-js/blob/master/examples/gyro.js
+    function updateGravity(event) {
+        const orientation = typeof window.orientation !== 'undefined' ? window.orientation : 0;
+        let x;
+        let y;
+        if (orientation === 0) {
+            x = clamp(event.gamma, -90, 90) / 90;
+            y = clamp(event.beta, -90, 90) / 90;
+        }
+        else if (orientation === 180) {
+            x = clamp(event.gamma, -90, 90) / 90;
+            y = clamp(-event.beta, -90, 90) / 90;
+        }
+        else if (orientation === 90) {
+            x = clamp(event.beta, -90, 90) / 90;
+            y = clamp(-event.gamma, -90, 90) / 90;
+        }
+        else if (orientation === -90) {
+            x = clamp(-event.beta, -90, 90) / 90;
+            y = clamp(event.gamma, -90, 90) / 90;
+        }
+    
+        const scale = 1000 / Math.sqrt(x * x + y * y);
+    
+        world.SetGravity(new b2.Vec2(x * scale, y * scale));
+    };
+    
+    function addSphere(e) {
+        const pos = e.touches ? e.touches[0]: e;
+        const x = pos.clientX;
+        const y = pos.clientY;
+    
+    }
+    
+    window.addEventListener('deviceorientation', updateGravity);
+    
+    window.addEventListener('click', addSphere);
 }
 
-frame();
-
-function clamp(val, min, max) {
-    return Math.min(Math.max(val, min), max);
-}
-// https://github.com/liabru/matter-js/blob/master/examples/gyro.js
-function updateGravity(event) {
-    const orientation = typeof window.orientation !== 'undefined' ? window.orientation : 0;
-    let x;
-    let y;
-    if (orientation === 0) {
-        x = clamp(event.gamma, -90, 90) / 90;
-        y = clamp(event.beta, -90, 90) / 90;
+console.time('Initialize webassembly');
+window.Module = {
+    postRun() {
+        console.timeEnd('Initialize webassembly');
+        init();
     }
-    else if (orientation === 180) {
-        x = clamp(event.gamma, -90, 90) / 90;
-        y = clamp(-event.beta, -90, 90) / 90;
-    }
-    else if (orientation === 90) {
-        x = clamp(event.beta, -90, 90) / 90;
-        y = clamp(-event.gamma, -90, 90) / 90;
-    }
-    else if (orientation === -90) {
-        x = clamp(-event.beta, -90, 90) / 90;
-        y = clamp(event.gamma, -90, 90) / 90;
-    }
-
-    const scale = 1000 / Math.sqrt(x * x + y * y);
-
-    world.SetGravity(new b2.Vec2(x * scale, y * scale));
 };
 
-function addSphere(e) {
-    const pos = e.touches ? e.touches[0]: e;
-    const x = pos.clientX;
-    const y = pos.clientY;
-
-}
-
-window.addEventListener('deviceorientation', updateGravity);
-
-window.addEventListener('click', addSphere);
+var b2 = require('../lib/liquidfun');
+// init();

@@ -6,8 +6,12 @@ const particleVsCode = `
 attribute vec2 position;
 
 uniform vec2 viewport;
+uniform bool isPoint;
+
 void main() {
-    gl_PointSize = 2.0;
+    if (isPoint) {
+        gl_PointSize = 2.0;
+    }
     vec2 p = (position / viewport - 0.5) * 2.0;
     p.y = -p.y;
     gl_Position = vec4(p, 0.0, 1.0);
@@ -19,27 +23,46 @@ void main() {
     gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
 }
 `;
-var stats = new Stats();
-document.body.appendChild(stats.dom);
 
-const canvas = document.createElement('canvas');
-const mainDiv = document.querySelector('#main');
-mainDiv.appendChild(canvas);
-const width = mainDiv.clientWidth;
-const height = mainDiv.clientHeight;
+const isSwan = typeof swan !== 'undefined';
+if (typeof window === 'undefined' && typeof swanGlobal !== 'undefined') {
+    swanGlobal.window = swanGlobal;
+    window.document = {};
+}
 
-canvas.width = width;
-canvas.height = height;
+let urlOpts = {};
+let canvas = null;
+let width = 0;
+let height = 0;
+let stats = null;
+if (!isSwan) {
+    stats = new Stats();
+    document.body.appendChild(stats.dom);
+    
+    canvas = document.createElement('canvas');
+    const mainDiv = document.querySelector('#main');
+    mainDiv.appendChild(canvas);
+    width = mainDiv.clientWidth;
+    height = mainDiv.clientHeight;
+    
+    canvas.width = width;
+    canvas.height = height;
 
-const searchStr = location.search.slice(1);
-const searchItems = searchStr.split('&');
-const urlOpts = {};
-searchItems.forEach(item => {
-    const arr = item.split('=');
-    const key = arr[0];
-    const val = arr[1] || true;
-    urlOpts[key] = val;
-});
+    const searchStr = location.search.slice(1);
+    const searchItems = searchStr.split('&');
+    searchItems.forEach(item => {
+        const arr = item.split('=');
+        const key = arr[0];
+        const val = arr[1] || true;
+        urlOpts[key] = val;
+    });
+}
+else {
+    canvas = swan.createCanvas();
+    width = canvas.width;
+    height = canvas.height;
+}
+
 
 let draw;
 if (urlOpts.renderer === 'canvas') {
@@ -86,6 +109,7 @@ else {
 
     gl.useProgram(program);
     const posLoc = gl.getAttribLocation(program, 'position');
+    const isPointLoc = gl.getUniformLocation(program, 'isPoint');
     gl.uniform2f(gl.getUniformLocation(program, 'viewport'), width, height);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
@@ -93,14 +117,42 @@ else {
     gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
     gl.bufferData(gl.ARRAY_BUFFER, 3e5, gl.DYNAMIC_DRAW);
 
+
+    const lineData = new Float32Array(1e4);
     draw = function (position) {
         gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.viewport(0, 0, width, height);
 
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, position);
-
+        gl.uniform1i(isPointLoc, 1);
         gl.drawArrays(gl.POINTS, 0, position.length / 2);
+
+        let lineVertexCount = 0;
+        for (let i = 0; i < bodies.length; i++) {
+            const body = bodies[i];
+            for (let k = 0; k < body.fixtures.length; k++) {
+                const shape = body.fixtures[k].shape;
+                const vertices = shape.vertices;
+                const len = vertices.length;
+                if (len < 2) {
+                    continue;
+                }
+                for (let m = 0; m < len; m++) {
+                    const p = vertices[m];
+                    const p2 = vertices[(m + 1) % len];
+                    lineData[lineVertexCount * 2] = p.x;
+                    lineData[lineVertexCount * 2 + 1] = p.y;
+                    lineData[lineVertexCount * 2 + 2] = p2.x;
+                    lineData[lineVertexCount * 2 + 3] = p2.y;
+
+                    lineVertexCount += 2;
+                }
+            }
+        }
+        gl.bufferSubData(gl.ARRAY_BUFFER, position.length * 4, lineData);
+        gl.uniform1i(isPointLoc, 0);
+        gl.drawArrays(gl.LINES, position.length / 2, lineVertexCount);
     };
 }
 
@@ -162,14 +214,14 @@ function init() {
     const {world} = initPhysics();
 
     function frame() {
-        stats.begin();
+        stats && stats.begin();
     
         world.Step(0.01, 5, 3);
     
         const position = world.particleSystems[0].GetPositionBuffer();
         draw(position);
     
-        stats.end();
+        stats && stats.end();
         requestAnimationFrame(frame);
     }
     
@@ -212,9 +264,10 @@ function init() {
     
     }
     
-    window.addEventListener('deviceorientation', updateGravity);
-    
-    window.addEventListener('click', addSphere);
+    if (!isSwan) {
+        window.addEventListener('deviceorientation', updateGravity);
+        window.addEventListener('click', addSphere);
+    }
 }
 
 console.time('Initialize webassembly');
@@ -224,6 +277,10 @@ window.Module = {
         init();
     }
 };
+
+if (isSwan) {
+    window.Module.wasmBinary = swan.getFileSystemManager().readFileSync('lib/lf_core.wasm');
+}
 
 var b2 = require('../lib/liquidfun');
 // init();
